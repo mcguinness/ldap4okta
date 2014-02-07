@@ -1,4 +1,5 @@
 var ldap = require('ldapjs');
+var oktaweb = require('./webclient.js');
 
 
 
@@ -34,69 +35,8 @@ var orgBaseUrl = "http://rain.okta1.com:1802";
 var oktaApi = new RestClient();
 var authHeader = "SSWS " +  apiToken;
 
+
 oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
-oktaApi.registerMethod("getActiveUsers", orgBaseUrl + "/api/v1/users", "GET");
-oktaApi.registerMethod("getSingleActiveUser", orgBaseUrl + "/api/v1/users/${uid}", "GET");
-
-
-// Various REST calls methods to the Okta Server
-
-// Get All Active Users in Okta
-var allUsersArgs = {
-  headers: {
-    "Accept":"application/json",
-    "Content-Type":"application/json",
-    "Authorization": authHeader
-   }
-}
-
-oktaApi.methods.getActiveUsers(allUsersArgs, 
-  function(data, response) {
-    if (response.statusCode == 200) {
-        console.log("Getting list of Active Users: \n");
-        console.log(response);
-        console.log(data);
-        //return next();
-    } else {
-      console.log("Wrong API Token!");
-      //return next(new ldap.InvalidCredentialsError());
-    }
-  }).on('error',function(err) {
-      console.log('something went wrong on the request', err.request.options);
-      //return next(new ldap.InvalidCredentialsError());
-  });
-
-// Get individual active user based on shortname of login
-
-
-var userUID = "nadeemk"; // TODO hackers: Parameterize this or extract it from LDAP query. 
-                  // This would be the login attribute on the user.
-
-var singleUserArgs = {
-  path: {"uid": userUID },
-  headers: {
-    "Accept":"application/json",
-    "Content-Type":"application/json",
-    "Authorization": authHeader
-   }
-}
-
-oktaApi.methods.getSingleActiveUser(singleUserArgs, 
-  function(data, response) {
-    if (response.statusCode == 200) {
-        console.log("Getting list of Active Users: \n");
-        //console.log(response);
-        console.log(data);
-        //return next();
-    } else {
-      console.log("Wrong API Token!");
-      //return next(new ldap.InvalidCredentialsError());
-    }
-  }).on('error',function(err) {
-      console.log('something went wrong on the request', err.request.options);
-      //return next(new ldap.InvalidCredentialsError());
-  }); 
-
 
 server.bind('cn=root', function (req, res, next) {
   // if (req.dn.toString() !== 'cn=root' || req.credentials !== 'secret')
