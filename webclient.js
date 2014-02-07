@@ -60,6 +60,33 @@ function getGroupsById (groupId, baseUrl, authToken) {
     });
 }
 
+function getGroupsByName (groupPrefix, baseUrl, authToken) {
+   oktaApi.registerMethod("getGroupsByName", baseUrl + "/api/v1/groups", "GET");
+   var authHeader = "SSWS " +  authToken;
+   var allUsersArgs = {
+      parameters:{q:groupPrefix},
+      headers: {
+        "Accept":"application/json",
+        "Content-Type":"application/json",
+        "Authorization": authHeader
+      }
+    }
+    oktaApi.methods.getGroupsByName(allUsersArgs, 
+      function(data, response) {
+        if (response.statusCode == 200) {
+            console.log("Getting list of Groups with Prefix " + groupPrefix + "\n");
+            console.log(data);
+            //return next();
+        } else {
+          console.log("Wrong API Token!");
+          //return next(new ldap.InvalidCredentialsError());
+        }
+      }).on('error',function(err) {
+          console.log('something went wrong on the request', err.request.options);
+          //return next(new ldap.InvalidCredentialsError());
+    });
+}
+
 function getUserByLogin (uid, baseUrl, authToken) {
 
   var userUID = uid; // TODO hackers: Parameterize this or extract it from LDAP query. 
@@ -94,9 +121,12 @@ function getUserByLogin (uid, baseUrl, authToken) {
     }); 
 }
 
-exports.getActiveUsers = getActiveUsers;
-exports.getUserByLogin = getUserByLogin;
-exports.getGroupsById  = getGroupsById;
+
+
+exports.getActiveUsers  = getActiveUsers;
+exports.getUserByLogin  = getUserByLogin;
+exports.getGroupsById   = getGroupsById;
+exports.getGroupsByName = getGroupsByName;
 /*var api = function (authHeader) {
 
 
