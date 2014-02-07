@@ -19,6 +19,7 @@ function authorize(req, res, next) {
 
 var SUFFIX = 'o=smartdc';
 var USERSUFFIX = 'ou=users';
+var GROUPSUFFIX = 'ou=groups';
 var db = {};
 var server = ldap.createServer();
 
@@ -196,6 +197,23 @@ server.search(USERSUFFIX, function(req, res, next) {
       oktaweb.getUserByLogin (f.filters[0].value, orgBaseUrl, apiToken)
     } else {
       oktaweb.getActiveUsers (orgBaseUrl, apiToken);
+    }
+    res.end();
+});
+
+server.search(GROUPSUFFIX, function(req, res, next) {
+    console.log('base object: ' + req.dn.toString());
+    console.log('scope: ' + req.scope);
+    console.log('filter: ' + req.filter.toString());
+
+    var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
+    console.log(f);
+    if(f.filters[0].attribute == 'cn') {
+        console.log(f.filters[0].attribute);
+        console.log(f.filters[0].value);
+        oktaweb.getGroupsById(f.filters[0].value, orgBaseUrl, apiToken)
+    } else {
+        oktaweb.getAllGroups (orgBaseUrl, apiToken);
     }
     res.end();
 });
