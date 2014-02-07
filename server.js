@@ -18,6 +18,7 @@ function authorize(req, res, next) {
 ///--- Globals
 
 var SUFFIX = 'o=smartdc';
+var USERSUFFIX = 'ou=users';
 var db = {};
 var server = ldap.createServer();
 
@@ -180,6 +181,23 @@ server.modify(SUFFIX, authorize, function (req, res, next) {
 
   res.end();
   return next();
+});
+
+server.search(USERSUFFIX, function(req, res, next) {
+    console.log('base object: ' + req.dn.toString());
+    console.log('scope: ' + req.scope);
+    console.log('filter: ' + req.filter.toString());
+
+    var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
+    console.log(f);
+    if(f.filters[0].attribute == 'uid') {
+      console.log(f.filters[0].attribute);
+      console.log(f.filters[0].value);
+      oktaweb.getUserByLogin (f.filters[0].value, orgBaseUrl, apiToken)
+    } else {
+      oktaweb.getActiveUsers (orgBaseUrl, apiToken);
+    }
+    res.end();
 });
 
 server.search(SUFFIX, authorize, function (req, res, next) {
