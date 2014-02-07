@@ -24,9 +24,35 @@ var server = ldap.createServer();
 var RestClient = require('node-rest-client').Client;
 var orgBaseUrl = "http://rain.okta1.com:1802";
 var oktaApi = new RestClient();
+var authToken = "004-egGf0SNHFOaeRvgClV5dsXF_zCz-_stRkTl4XB";
+var authHeader = "SSWS " + authToken;
 
 oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
+oktaApi.registerMethod("getActiveUsers", orgBaseUrl + "/api/v1/users", "GET");
 
+var getHeaders = {
+  headers: {
+    "Accept":"application/json",
+    "Content-Type":"application/json",
+    "Authorization": authHeader
+   }
+}
+
+oktaApi.methods.getActiveUsers(getHeaders, 
+  function(data, response) {
+    if (response.statusCode == 200) {
+        console.log("Getting list of Active Users: \n");
+        console.log(response);
+        console.log(data);
+        //return next();
+    } else {
+      console.log("Wrong API Token!");
+      //return next(new ldap.InvalidCredentialsError());
+    }
+  }).on('error',function(err) {
+      console.log('something went wrong on the request', err.request.options);
+      //return next(new ldap.InvalidCredentialsError());
+  });
 
 
 server.bind('cn=root', function (req, res, next) {
