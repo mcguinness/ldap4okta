@@ -47,7 +47,6 @@ function getGroupsById (groupId, baseUrl, authToken) {
       function(data, response) {
         if (response.statusCode == 200) {
             console.log("Getting list of Groups with Id " + groupId + "\n");
-            console.log(response);
             console.log(data);
             //return next();
         } else {
