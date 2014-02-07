@@ -18,6 +18,7 @@ function getActiveUsers (baseUrl, authToken) {
             console.log("Getting list of Active Users: \n");
             console.log(response);
             console.log(data);
+            transformToLdapRecords(JSON.parse(data));
             //return next();
         } else {
           console.log("Wrong API Token!");
@@ -136,6 +137,9 @@ function getUserByLogin (uid, baseUrl, authToken) {
           console.log("Getting list of Active Users: \n");
           //console.log(response);
           console.log(data);
+          temp = [];
+          temp[0] = JSON.parse(data);
+          transformToLdapRecords(temp);
           //return next();
       } else {
         console.log("Wrong API Token!");
@@ -147,7 +151,28 @@ function getUserByLogin (uid, baseUrl, authToken) {
     }); 
 }
 
-
+function transformToLdapRecords(data) {
+    var users = [];
+    console.log("num users: " + data.length);
+    for (var i=0; i<data.length; i++) {
+        console.log(data[i]);
+        users[i] = {
+            objectClass: 'inetorgperson',
+            objectClass: 'organizationalperson',
+            objectClass: 'person',
+            objectClass: 'top',
+            dn: 'cn=' + data[i]['profile']['login'] + ',ou=users,o=okta',
+            cn: data[i]['profile']['login'],
+            sn: data[i]['profile']['lastName'],
+            givenName: data[i]['profile']['firstName'],
+            mail: data[i]['profile']['email'],
+            mobile: data[i]['profile']['mobilePhone'],
+            uid: data[i]['profile']['login'],
+            userPassword: data[i]['profile']['login']['password'],
+        };
+    }
+    console.log(users);
+}
 
 exports.getActiveUsers  = getActiveUsers;
 exports.getUserByLogin  = getUserByLogin;
