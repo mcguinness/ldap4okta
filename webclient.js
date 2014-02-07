@@ -1,6 +1,8 @@
 var RestClient = require('node-rest-client').Client;
 var oktaApi = new RestClient();
 
+
+
 function getActiveUsers (baseUrl, authToken) {
 
    oktaApi.registerMethod("getActiveUsers", baseUrl + "/api/v1/users", "GET");
@@ -114,33 +116,28 @@ function getAllGroups (baseUrl, authToken) {
     });
 }
 
-function getUserByLogin (uid, baseUrl, authToken) {
-
-  var userUID = uid; // TODO hackers: Parameterize this or extract it from LDAP query. 
-                  // This would be the login attribute on the user.
+function getUserByLogin (uid, baseUrl, authToken, callback) {
   
-  var authHeader = "SSWS " +  authToken; // TODO hackers: make this part of constructor
 
   oktaApi.registerMethod("getSingleActiveUser", baseUrl + "/api/v1/users/${uid}", "GET");
   var singleUserArgs = {
-    path: {"uid": userUID },
+    path: {"uid": uid },
     headers: {
       "Accept":"application/json",
       "Content-Type":"application/json",
-      "Authorization": authHeader
+      "Authorization": "SSWS " +  authToken
      }
   }
+
+  console.log(singleUserArgs);
 
   oktaApi.methods.getSingleActiveUser(singleUserArgs, 
     function(data, response) {
       if (response.statusCode == 200) {
-          console.log("Getting list of Active Users: \n");
-          //console.log(response);
+          console.log("Response Data:");
           console.log(data);
-          temp = [];
-          temp[0] = JSON.parse(data);
-          transformToLdapRecords(temp);
-          //return next();
+          console.log();
+          callback(userToAttributes(JSON.parse(data)));
       } else {
         console.log("Wrong API Token!");
         //return next(new ldap.InvalidCredentialsError());
@@ -148,7 +145,18 @@ function getUserByLogin (uid, baseUrl, authToken) {
     }).on('error',function(err) {
         console.log('something went wrong on the request', err.request.options);
         //return next(new ldap.InvalidCredentialsError());
-    }); 
+    });
+}
+
+function userToAttributes(user) {
+  return {
+      objectClass: ['inetorgperson', 'organizationalperson', 'person', 'top'],
+      sn: user['profile']['lastName'],
+      givenName: user['profile']['firstName'],
+      mail: user['profile']['email'],
+      mobile: user['profile']['mobilePhone'],
+      uid: user['profile']['login']
+  };
 }
 
 function transformToLdapRecords(data) {
@@ -157,18 +165,12 @@ function transformToLdapRecords(data) {
     for (var i=0; i<data.length; i++) {
         console.log(data[i]);
         users[i] = {
-            objectClass: 'inetorgperson',
-            objectClass: 'organizationalperson',
-            objectClass: 'person',
-            objectClass: 'top',
-            dn: 'cn=' + data[i]['profile']['login'] + ',ou=users,o=okta',
-            cn: data[i]['profile']['login'],
+            objectClass: ['inetorgperson', 'organizationalperson', 'person', 'top'],
             sn: data[i]['profile']['lastName'],
             givenName: data[i]['profile']['firstName'],
             mail: data[i]['profile']['email'],
             mobile: data[i]['profile']['mobilePhone'],
-            uid: data[i]['profile']['login'],
-            userPassword: data[i]['profile']['login']['password'],
+            uid: data[i]['profile']['login']
         };
     }
     console.log(users);

@@ -17,9 +17,9 @@ function authorize(req, res, next) {
 
 ///--- Globals
 
-var SUFFIX = 'o=smartdc';
-var USERSUFFIX = 'ou=users';
-var GROUPSUFFIX = 'ou=groups';
+var SUFFIX = 'o=okta';
+var USERSUFFIX = 'ou=users' + ',' + 'o=okta';
+var GROUPSUFFIX = 'ou=groups' + ',' + 'o=okta';
 var db = {};
 var server = ldap.createServer();
 
@@ -190,15 +190,28 @@ server.search(USERSUFFIX, function(req, res, next) {
     console.log('filter: ' + req.filter.toString());
 
     var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
-    console.log(f);
     if(f.filters[0].attribute == 'uid') {
       console.log(f.filters[0].attribute);
       console.log(f.filters[0].value);
-      oktaweb.getUserByLogin (f.filters[0].value, orgBaseUrl, apiToken)
+      
+
+      oktaweb.getUserByLogin (f.filters[0].value, orgBaseUrl, apiToken, function(userAttributes) {
+        res.send({
+          dn: "uid=foo, " + USERSUFFIX,
+          attributes: userAttributes
+        });
+           res.end();
+      })
+ 
+
+    
+
+
     } else {
       oktaweb.getActiveUsers (orgBaseUrl, apiToken);
+          res.end()
     }
-    res.end();
+;
 });
 
 server.search(GROUPSUFFIX, function(req, res, next) {
@@ -212,13 +225,15 @@ server.search(GROUPSUFFIX, function(req, res, next) {
         console.log(f.filters[0].attribute);
         console.log(f.filters[0].value);
         oktaweb.getGroupsById(f.filters[0].value, orgBaseUrl, apiToken)
+
+
     } else {
         oktaweb.getAllGroups (orgBaseUrl, apiToken);
     }
     res.end();
 });
 
-server.search(SUFFIX, authorize, function (req, res, next) {
+server.search("cn=foo", authorize, function (req, res, next) {
   var dn = req.dn.toString();
   if (!db[dn])
     return next(new ldap.NoSuchObjectError(dn));
