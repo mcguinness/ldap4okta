@@ -29,6 +29,10 @@ var authHeader = "SSWS " + authToken;
 
 oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
 oktaApi.registerMethod("getActiveUsers", orgBaseUrl + "/api/v1/users", "GET");
+oktaApi.registerMethod("getSingleActiveUser", orgBaseUrl + "/api/v1/users", "GET");
+
+
+// Various REST calls methods to the Okta Server
 
 var getHeaders = {
   headers: {
@@ -53,6 +57,35 @@ oktaApi.methods.getActiveUsers(getHeaders,
       console.log('something went wrong on the request', err.request.options);
       //return next(new ldap.InvalidCredentialsError());
   });
+
+// Get individual active user
+var userUID = "nadeemk"; // TODO hackers: Parameterize this or extract it from LDAP query. 
+                  // This would be the login attribute on the user.
+
+var singleUserArgs = {
+  path: {"uid": userUID },
+  headers: {
+    "Accept":"application/json",
+    "Content-Type":"application/json",
+    "Authorization": authHeader
+   }
+}
+
+oktaApi.methods.getSingleActiveUser(singleUserArgs, 
+  function(data, response) {
+    if (response.statusCode == 200) {
+        console.log("Getting list of Active Users: \n");
+        console.log(response);
+        console.log(data);
+        //return next();
+    } else {
+      console.log("Wrong API Token!");
+      //return next(new ldap.InvalidCredentialsError());
+    }
+  }).on('error',function(err) {
+      console.log('something went wrong on the request', err.request.options);
+      //return next(new ldap.InvalidCredentialsError());
+  }); 
 
 
 server.bind('cn=root', function (req, res, next) {
