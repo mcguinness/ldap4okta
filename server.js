@@ -21,11 +21,18 @@ var db = {};
 var server = ldap.createServer();
 
 
+if (process.argv[2] == "undefined") {
+  console.log("API Token is required as an argument");
+  console.log("server.js token");
+  process.exit(0);
+}
+
+console.log(process.argv[2]);
+var apiToken = process.argv[2];
 var RestClient = require('node-rest-client').Client;
 var orgBaseUrl = "http://rain.okta1.com:1802";
 var oktaApi = new RestClient();
-var authToken = "004-egGf0SNHFOaeRvgClV5dsXF_zCz-_stRkTl4XB";
-var authHeader = "SSWS " + authToken;
+var authHeader = "SSWS " +  apiToken;
 
 oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
 oktaApi.registerMethod("getActiveUsers", orgBaseUrl + "/api/v1/users", "GET");
