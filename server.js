@@ -1,6 +1,7 @@
 var ldap = require('ldapjs');
 
 
+
 ///--- Shared handlers
 
 function authorize(req, res, next) {
@@ -20,13 +21,48 @@ var db = {};
 var server = ldap.createServer();
 
 
+var RestClient = require('node-rest-client').Client;
+var orgBaseUrl = "http://rain.okta1.com:1802";
+var oktaApi = new RestClient();
+
+oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
+
+
 
 server.bind('cn=root', function (req, res, next) {
-  if (req.dn.toString() !== 'cn=root' || req.credentials !== 'secret')
-    return next(new ldap.InvalidCredentialsError());
+  // if (req.dn.toString() !== 'cn=root' || req.credentials !== 'secret')
+  
+  console.log("Binding as: " + req.dn.toString() + " with password: " + req.credentials);
 
-  res.end();
-  return next();
+  var creds = {
+      headers: { 
+        "Accept":"application/json",
+        "Content-Type":"application/json",
+      },
+      data: {
+        "username": "administrator1@clouditude.net",
+        "password": req.credentials
+      }
+    };
+
+    console.log(creds);
+
+  oktaApi.methods.createSession(creds, function(data, response) {
+    
+    if (response.statusCode == 200) {
+      console.log("User is authenticated!");
+      res.end();
+      return next();
+    } else {
+      console.log("Wrong Creds!");
+      return next(new ldap.InvalidCredentialsError());
+    }
+  }).on('error',function(err) {
+      console.log('something went wrong on the request', err.request.options);
+      return next(new ldap.InvalidCredentialsError());
+  });
+
+
 });
 
 server.add(SUFFIX, authorize, function (req, res, next) {
