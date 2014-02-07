@@ -36,12 +36,13 @@ var authHeader = "SSWS " +  apiToken;
 
 oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
 oktaApi.registerMethod("getActiveUsers", orgBaseUrl + "/api/v1/users", "GET");
-oktaApi.registerMethod("getSingleActiveUser", orgBaseUrl + "/api/v1/users", "GET");
+oktaApi.registerMethod("getSingleActiveUser", orgBaseUrl + "/api/v1/users/${uid}", "GET");
 
 
 // Various REST calls methods to the Okta Server
 
-var getHeaders = {
+// Get All Active Users in Okta
+var allUsersArgs = {
   headers: {
     "Accept":"application/json",
     "Content-Type":"application/json",
@@ -49,7 +50,7 @@ var getHeaders = {
    }
 }
 
-oktaApi.methods.getActiveUsers(getHeaders, 
+oktaApi.methods.getActiveUsers(allUsersArgs, 
   function(data, response) {
     if (response.statusCode == 200) {
         console.log("Getting list of Active Users: \n");
@@ -65,7 +66,9 @@ oktaApi.methods.getActiveUsers(getHeaders,
       //return next(new ldap.InvalidCredentialsError());
   });
 
-// Get individual active user
+// Get individual active user based on shortname of login
+
+
 var userUID = "nadeemk"; // TODO hackers: Parameterize this or extract it from LDAP query. 
                   // This would be the login attribute on the user.
 
@@ -82,7 +85,7 @@ oktaApi.methods.getSingleActiveUser(singleUserArgs,
   function(data, response) {
     if (response.statusCode == 200) {
         console.log("Getting list of Active Users: \n");
-        console.log(response);
+        //console.log(response);
         console.log(data);
         //return next();
     } else {
