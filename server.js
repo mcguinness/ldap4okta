@@ -1,8 +1,23 @@
-var ldap = require('ldapjs');
-var OktaClient = require('./webclient.js');
-var _ = require('underscore');
+var ldap       = require('ldapjs');
+    fs         = require('fs'),
+    _          = require('underscore'),
+    RestClient = require('node-rest-client').Client;
+    OktaClient = require('./webclient.js');
 
 
+
+var argv = require('yargs')
+    .usage('Okta LDAP Proxy v0.1\nUsage: $0')
+    .default({ p: 1389, url: 'http://rain.okta1.com:1802', tls: false })
+    .alias('t', 'token')
+    .describe('token', 'SSWS API Token')
+    .alias('p', 'port')
+    .describe('port', 'LDAP listener port')
+    .describe('url', 'Okta organization url')
+    .describe('tls', 'Enable ssl/tls listener')
+    .demand('t')
+    .argv
+;
 
 ///--- Shared handlers
 
@@ -16,56 +31,68 @@ function authorize(req, res, next) {
 }
 
 
-///--- Globals
+///--- Constants
 
 var SUFFIX = 'o=okta';
 var USERSUFFIX = 'ou=users' + ',' + 'o=okta';
 var GROUPSUFFIX = 'ou=groups' + ',' + 'o=okta';
+var ADMIN_DN = 'cn=root';
+var ADMIN_PWD = 'secret';
+
+///--- Globals
+
 var db = {};
-var server = ldap.createServer();
+var options = argv.tls ? {
+  certificate: fs.readFileSync('server-cert.pem', encoding='ascii'),
+  key: fs.readFileSync('server-key.pem', encoding='ascii')
+} : {};
+var server = ldap.createServer(options);
+var oktaApi = new RestClient();
+var oktaClient = new OktaClient(argv.url, "SSWS " +  argv.token);
 
 
-if (process.argv[2] == "undefined") {
-  console.log("API Token is required as an argument");
-  console.log("server.js token");
-  process.exit(0);
+function logRequest(req) {
+  console.log(req.type + ' (' + req.id + ') ' + ' [DN: ' + req.dn.toString() + ']');
+  
+  if (req instanceof ldap.SearchRequest) {
+    console.log('\tBase DN: ' + req.dn.toString());
+    console.log('\tScope: ' + req.scope);
+    console.log('\tFilter: ' + req.filter.toString() + ' Type: ' + req.filter.type);
+  }
 }
 
-console.log(process.argv[2]);
-var apiToken = process.argv[2];
-var RestClient = require('node-rest-client').Client;
-var orgBaseUrl = "http://rain.okta1.com:1802";
-var oktaApi = new RestClient();
-var authHeader = "SSWS " +  apiToken;
-var directoryAdminDN = 'cn=root';
-var oktaClient = new OktaClient(orgBaseUrl, authHeader);
+function logResult(req, status) {
+  console.log(req.type + ' (' + req.id + ') ' + ' [DN: ' + req.dn.toString() + '] => Result: ' + status);
+}
 
 // Magick DN for Service Account
-server.bind(directoryAdminDN, function (req, res, next) {
-  console.log("Directory Admin Bind");
-  if (req.dn.toString() !== directoryAdminDN || req.credentials !== 'secret') {
+server.bind(ADMIN_DN, function (req, res, next) {
+  logRequest(req);
+  if (req.dn.toString() !== ADMIN_DN || req.credentials !== ADMIN_PWD) {
+    logResult(req, 'InvalidCredentialsError');
     return next(new ldap.InvalidCredentialsError());
   }
+  logResult(req, 'Success');
   res.end();
   return next();
 });
 
 // User with DN
 server.bind(SUFFIX, function (req, res, next) {
-  console.log("Binding as: " + req.dn.toString() + " with password: " + req.credentials);
-
-  console.log(req.dn.rdns[0].uid);
-
+  logRequest(req);
   if (req.dn.rdns[0].uid !== 'undefined') {
     oktaClient.authenticate(req.dn.rdns[0].uid, req.credentials, 
       function() {
-          res.end();
-          return next();
-      }, function() {
-         return next(new ldap.InvalidCredentialsError());
+        logResult(req, 'Success');
+        res.end();
+        return next();
+      },
+      function() {
+        logResult(req, 'InvalidCredentialsError - [credentials not valid]');
+        return next(new ldap.InvalidCredentialsError());
       });
   } else {
-    console.log("InvalidCredentials: uid is not valid!")
+    logResult(req, 'InvalidCredentialsError - [uid not present]');
     return next(new ldap.InvalidCredentialsError());
   }
 });
@@ -179,15 +206,7 @@ server.bind(SUFFIX, function (req, res, next) {
 // });
 
 server.search(USERSUFFIX, function(req, res, next) {
-    console.log('base object: ' + req.dn.toString());
-    console.log('scope: ' + req.scope);
-    console.log('filter: ' + req.filter.toString());
-
-
-    
-
-    var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
-    console.log(req.filter);
+  logRequest(req);
 
     // filter: (&(|(givenname=karl*)(sn=karl*)(mail=karl*)(cn=karl*)))
     if (req.filter.type === 'and' && req.filter.filters[0].type === 'or') {
@@ -211,11 +230,9 @@ server.search(USERSUFFIX, function(req, res, next) {
       } else {
         res.end();
       }
-    } else if(f.filters[0].attribute == 'uid') {
-      console.log(f.filters[0].attribute);
-      console.log(f.filters[0].value);
+    } else if(req.filter.attribute == 'uid') {
       
-      oktaClient.getUserByUid(f.filters[0].value, 
+      oktaClient.getUserByUid(req.filter.value, 
         function(userAttributes) {
           res.send({
             dn: "uid=" + userAttributes.uid + "," + USERSUFFIX,
@@ -332,6 +349,6 @@ server.search("cn=foo", authorize, function (req, res, next) {
 
 ///--- Fire it up
 
-server.listen(1389, function () {
+server.listen(argv.port, function () {
   console.log('LDAP server up at: %s', server.url);
 });

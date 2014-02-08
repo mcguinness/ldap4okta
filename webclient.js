@@ -1,8 +1,6 @@
 var RestClient = require('node-rest-client').Client;
 
 
-
-
 function userToAttributes(user) {
   return {
       objectClass: ['okta-user', 'user', 'inetorgperson', 'organizationalperson', 'person', 'top'],
@@ -27,8 +25,6 @@ function groupToAttributes(group) {
   };
 }
 
-
-
 // Constructor
 function OktaClient(baseUrl, apiToken) {
   
@@ -47,7 +43,7 @@ function OktaClient(baseUrl, apiToken) {
   oktaApi.registerMethod("getGroups", baseUrl + "/api/v1/groups", "GET");
   oktaApi.registerMethod("getGroup", baseUrl + "/api/v1/groups/${gid}", "GET");
 
-  this.authenticate = function(userName, password, onSuccess, onFail) {
+  this.authenticate = function(userName, password, onSuccess, onError) {
     oktaApi.methods.createSession({
         headers: httpHeaders,
         data: {
@@ -56,20 +52,18 @@ function OktaClient(baseUrl, apiToken) {
         }
       }, function(data, response) {
         if (response.statusCode == 200) {
-          console.log("User is authenticated!");
           onSuccess();
         } else if (response.statusCode == 401) {
-          console.log("Invalid Credentials for user " + userName);
-          onFail();
+          onError(true);
         } else {
-          onFail();
+          onError(false);
         }
       }).on('error',function(err) {
-          onFail();
+          onError(false);
       });
   }
 
-  this.getUserByUid = function (uid, onSuccess, onFail) {
+  this.getUserByUid = function (uid, onSuccess, onError) {
     oktaApi.methods.getUser({
         path: {"uid": uid },
         headers: httpHeaders
@@ -82,15 +76,15 @@ function OktaClient(baseUrl, apiToken) {
             onSuccess(userToAttributes(JSON.parse(data)));
         } else {
           console.log("Wrong API Token!");
-          onFail();
+          onError();
         }
       }).on('error',function(err) {
           console.log('something went wrong on the request', err.request.options);
-          onFail();
+          onError();
       });
   }
 
-  this.getUsers = function(onSuccess, onFail) {
+  this.getUsers = function(onSuccess, onError) {
     console.log("Getting active users: ");
     oktaApi.methods.getUsers( { headers: httpHeaders }, 
       function(data, response) {
@@ -104,17 +98,17 @@ function OktaClient(baseUrl, apiToken) {
             return onSuccess(ldapUsers);
         } else {
           console.log("Wrong API Token!");
-          onFail();
+          onError();
         }
       }).on('error',function(err) {
           console.log('something went wrong on the request', err.request.options);
-          onFail();
+          onError();
     });
 
   };
 
 
-  this.findUsers = function(query, onSuccess, onFail) {
+  this.findUsers = function(query, onSuccess, onError) {
     console.log("Finding user that match: " + query);
 
     var args = { 
@@ -137,16 +131,16 @@ function OktaClient(baseUrl, apiToken) {
             return onSuccess(ldapUsers);
         } else {
           console.log("Wrong API Token!");
-          onFail();
+          onError();
         }
       }).on('error',function(err) {
           console.log('something went wrong on the request', err.request.options);
-          onFail();
+          onError();
     });
 
   };
 
-  this.getGroups = function (onSuccess, onFail) {
+  this.getGroups = function (onSuccess, onError) {
     console.log("Getting active users: ");
     oktaApi.methods.getGroups({ headers: httpHeaders },
       function(data, response) {
@@ -167,7 +161,7 @@ function OktaClient(baseUrl, apiToken) {
   };
 
 
-  this.getGroupById = function(groupId, onSuccess, onFail) {
+  this.getGroupById = function(groupId, onSuccess, onError) {
     console.log("Getting group:  " + groupId);
     oktaApi.methods.getGroup({
       path: { "gid": groupId },
@@ -178,11 +172,11 @@ function OktaClient(baseUrl, apiToken) {
           console.log(data);
           onSuccess(groupToAttributes(JSON.parse(data)));
       } else {
-        onFail();
+        onError();
       }
     }).on('error',function(err) {
         console.log('something went wrong on the request', err.request.options);
-        onFail();
+        onError();
     });
   };
 }
