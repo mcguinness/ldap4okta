@@ -183,8 +183,35 @@ server.search(USERSUFFIX, function(req, res, next) {
     console.log('scope: ' + req.scope);
     console.log('filter: ' + req.filter.toString());
 
+
+    
+
     var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
-    if(f.filters[0].attribute == 'uid') {
+    console.log(req.filter);
+
+    // filter: (&(|(givenname=karl*)(sn=karl*)(mail=karl*)(cn=karl*)))
+    if (req.filter.type === 'and' && req.filter.filters[0].type === 'or') {
+      var orFilters = req.filter.filters[0].filters;
+      if (_.find(orFilters, function(filter) {
+        return (filter.type == 'substring' && 
+          (filter.attribute == 'givenName' || filter.attribute == 'sn' || filter.attribute == 'email'));
+      })) {
+        oktaClient.findUsers(orFilters[0].initial,
+          function(ldapUsers) {
+            _.each(ldapUsers, function(user) {
+              res.send({ 
+                dn: "uid=" + user.uid + "," + USERSUFFIX,
+                attributes: user 
+              });
+            });
+            res.end();
+          }, function() {
+            res.end()
+          });
+      } else {
+        res.end();
+      }
+    } else if(f.filters[0].attribute == 'uid') {
       console.log(f.filters[0].attribute);
       console.log(f.filters[0].value);
       

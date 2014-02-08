@@ -5,12 +5,16 @@ var RestClient = require('node-rest-client').Client;
 
 function userToAttributes(user) {
   return {
-      objectClass: ['okta-user', 'inetorgperson', 'organizationalperson', 'person', 'top'],
+      objectClass: ['okta-user', 'user', 'inetorgperson', 'organizationalperson', 'person', 'top'],
       sn: user['profile']['lastName'],
       givenName: user['profile']['firstName'],
       mail: user['profile']['email'],
       mobile: user['profile']['mobilePhone'],
-      uid: user['profile']['login']
+      uid: user['profile']['login'],
+      title: user['profile']['title'],
+      manager: user['profile']['manager'],
+      physicalDeliveryOfficeName: user['profile']['location'],
+      uuid: user['id']
   };
 }
 
@@ -39,6 +43,7 @@ function OktaClient(baseUrl, apiToken) {
   oktaApi.registerMethod("createSession", baseUrl + "/api/v1/sessions", "POST");
   oktaApi.registerMethod("getUser", baseUrl + "/api/v1/users/${uid}", "GET");
   oktaApi.registerMethod("getUsers", baseUrl + "/api/v1/users", "GET");
+  oktaApi.registerMethod("findUsers", baseUrl + "/api/v1/users", "GET");
   oktaApi.registerMethod("getGroups", baseUrl + "/api/v1/groups", "GET");
   oktaApi.registerMethod("getGroup", baseUrl + "/api/v1/groups/${gid}", "GET");
 
@@ -88,6 +93,39 @@ function OktaClient(baseUrl, apiToken) {
   this.getUsers = function(onSuccess, onFail) {
     console.log("Getting active users: ");
     oktaApi.methods.getUsers( { headers: httpHeaders }, 
+      function(data, response) {
+        if (response.statusCode == 200) {
+            //console.log(data);
+            var users = JSON.parse(data);
+            var ldapUsers = [];
+            for (var i=0; i<users.length; i++) {
+              ldapUsers[i] = userToAttributes(users[i]);
+            }
+            return onSuccess(ldapUsers);
+        } else {
+          console.log("Wrong API Token!");
+          onFail();
+        }
+      }).on('error',function(err) {
+          console.log('something went wrong on the request', err.request.options);
+          onFail();
+    });
+
+  };
+
+
+  this.findUsers = function(query, onSuccess, onFail) {
+    console.log("Finding user that match: " + query);
+
+    var args = { 
+        parameters: {
+          q: query
+        },
+        headers: httpHeaders
+      };
+
+      console.log(args);
+    oktaApi.methods.findUsers(args, 
       function(data, response) {
         if (response.statusCode == 200) {
             console.log(data);
