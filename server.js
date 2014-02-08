@@ -183,34 +183,56 @@ server.search(USERSUFFIX, function(req, res, next) {
     console.log('scope: ' + req.scope);
     console.log('filter: ' + req.filter.toString());
 
-    var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
-    if(f.filters[0].attribute == 'uid') {
-      console.log(f.filters[0].attribute);
-      console.log(f.filters[0].value);
-      
-      oktaClient.getUserByUid(f.filters[0].value, 
-        function(userAttributes) {
-          res.send({
-            dn: "uid=" + userAttributes.uid + "," + USERSUFFIX,
-            attributes: userAttributes
-          });
-          res.end();
-        }, function() {
-          res.end()
-        });
-    } else {
-      oktaClient.getUsers( 
-        function(ldapUsers) {
-          _.each(ldapUsers, function(user) {
-            res.send({ 
-              dn: "uid=" + user.uid + "," + USERSUFFIX,
-              attributes: user 
+    switch(req.filter.type.toLowerCase()) {
+      case 'equal': {
+        if(req.filter.attribute == 'uid') {
+          oktaClient.getUserByUid(req.filter.value, 
+            function(userAttributes) {
+              res.send({
+                dn: "uid=" + userAttributes.uid + "," + USERSUFFIX,
+                attributes: userAttributes
+              });
+              res.end();
+            }, function() {
+              res.end()
             });
-          });
+        } else {
+          console.log('unknown filter');
+        }
+        break;
+      }
+      case 'and':{
+        //assume objectclass=group as first filter
+        var uid = req.filter.filters[1].value;
+        console.log(uid);
+        oktaClient.getUserGroups(uid, 
+          function(ldapGroups) {
+            _.each(ldapGroups, function(ldapGroup) {
+              res.send({ 
+                dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
+                attributes: ldapGroup 
+              });
+            });
           res.end();
-        }, function() {
+          }, function() {
           res.end()
         });
+        break;
+      }
+      default: {
+        oktaClient.getUsers( 
+          function(ldapUsers) {
+            _.each(ldapUsers, function(user) {
+              res.send({ 
+                dn: "uid=" + user.uid + "," + USERSUFFIX,
+                attributes: user 
+              });
+            });
+            res.end();
+          }, function() {
+          res.end()
+        });
+      }
     }
 });
 
@@ -219,32 +241,52 @@ server.search(GROUPSUFFIX, function(req, res, next) {
     console.log('scope: ' + req.scope);
     console.log('filter: ' + req.filter.toString());
 
-    var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
-    console.log(f);
-    if(f.filters[0].attribute == 'cn') {
-      oktaClient.getGroupById(f.filters[0].value, 
-        function(ldapGroup) {
-          res.send({
-            dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
-            attributes: ldapGroup
-          });
-          res.end();
-        }, function() {
-          res.end()
-        });
-    } else {
-      oktaClient.getGroups( 
-        function(ldapGroups) {
-          _.each(ldapGroups, function(ldapGroup) {
-            res.send({ 
+    switch(req.filter.type.toLowerCase()) {
+      case 'equal': {
+        oktaClient.getGroupById(req.filter.value, 
+          function(ldapGroup) {
+            res.send({
               dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
-              attributes: ldapGroup 
+              attributes: ldapGroup
+            });
+            res.end();
+          }, function() {
+            res.end()
+          });
+        break;
+      }
+      case 'and':{
+        //assume objectclass=user as firsr filter
+        var groupName = req.filter.filters[1].value;
+        console.log(groupName);
+        oktaClient.getGroupUsers(groupName, 
+          function(ldapUsers) {
+            _.each(ldapUsers, function(user) {
+            res.send({ 
+              dn: "uid=" + user.uid + "," + USERSUFFIX,
+              attributes: user 
             });
           });
+            res.end();
+          }, function() {
+            res.end()
+          });
+        break;
+      }
+      default: {
+        oktaClient.getGroups( 
+          function(ldapGroups) {
+            _.each(ldapGroups, function(ldapGroup) {
+              res.send({ 
+                dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
+                attributes: ldapGroup 
+              });
+            });
           res.end();
-        }, function() {
+          }, function() {
           res.end()
         });
+      }
     }
 });
 
