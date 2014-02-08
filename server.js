@@ -209,12 +209,12 @@ server.search(USERSUFFIX, function(req, res, next) {
     } else {
       oktaClient.getUsers( 
         function(ldapUsers) {
-          res.send(_.map(ldapUsers, function(user) {
-            return { 
+          _.each(ldapUsers, function(user) {
+            res.send({ 
               dn: "uid=" + user.uid + "," + USERSUFFIX,
               attributes: user 
-            };
-          }));
+            });
+          });
           res.end();
         }, function() {
           res.end()
