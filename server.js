@@ -161,7 +161,6 @@ server.bind(SUFFIX, function (req, res, next) {
 //             entry[mod.type].push(v);
 //         });
 //       }
-
 //       break;
 
 //     case 'delete':
@@ -169,7 +168,6 @@ server.bind(SUFFIX, function (req, res, next) {
 //         return next(new ldap.NoSuchAttributeError(mod.type));
 
 //       delete entry[mod.type];
-
 //       break;
 //     }
 //   }
