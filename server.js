@@ -222,15 +222,30 @@ server.search(GROUPSUFFIX, function(req, res, next) {
     var f = ldap.parseFilter('(&' + req.filter.toString() + ')');
     console.log(f);
     if(f.filters[0].attribute == 'cn') {
-        console.log(f.filters[0].attribute);
-        console.log(f.filters[0].value);
-        oktaweb.getGroupsById(f.filters[0].value, orgBaseUrl, apiToken)
-
-
+      oktaClient.getGroupById(f.filters[0].value, 
+        function(ldapGroup) {
+          res.send({
+            dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
+            attributes: ldapGroup
+          });
+          res.end();
+        }, function() {
+          res.end()
+        });
     } else {
-        oktaweb.getAllGroups (orgBaseUrl, apiToken);
+      oktaClient.getGroups( 
+        function(ldapGroups) {
+          _.each(ldapGroups, function(ldapGroup) {
+            res.send({ 
+              dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
+              attributes: ldapGroup 
+            });
+          });
+          res.end();
+        }, function() {
+          res.end()
+        });
     }
-    res.end();
 });
 
 server.search("cn=foo", authorize, function (req, res, next) {
