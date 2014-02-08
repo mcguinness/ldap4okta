@@ -27,8 +27,31 @@ function OktaClient(baseUrl, apiToken) {
   };
 
   // Add Methods
+  oktaApi.registerMethod("createSession", baseUrl + "/api/v1/sessions", "POST");
   oktaApi.registerMethod("getSingleActiveUser", baseUrl + "/api/v1/users/${uid}", "GET");
   oktaApi.registerMethod("getActiveUsers", baseUrl + "/api/v1/users", "GET");
+
+  this.authenticate = function(userName, password, onSuccess, onFail) {
+    oktaApi.methods.createSession({
+        headers: httpHeaders,
+        data: {
+          "username": userName,
+          "password": password
+        }
+      }, function(data, response) {
+        if (response.statusCode == 200) {
+          console.log("User is authenticated!");
+          onSuccess();
+        } else if (response.statusCode == 401) {
+          console.log("Invalid Credentials for user " + userName);
+          onFail();
+        } else {
+          onFail();
+        }
+      }).on('error',function(err) {
+          onFail();
+      });
+  }
 
   this.getUserByUid = function (uid, onSuccess, onFail) {
     oktaApi.methods.getSingleActiveUser({
