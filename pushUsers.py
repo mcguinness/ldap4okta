@@ -1,6 +1,7 @@
 import json
 import requests
 import re
+import time
 
 a = re.compile(".*[0-9].*");
 
@@ -8,13 +9,14 @@ url      = "http://rain.okta1.com:1802/api/v1/users?activate=false";
 headers  = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': 'SSWS 004-egGf0SNHFOaeRvgClV5dsXF_zCz-_stRkTl4XB'
+            'Authorization': 'SSWS 00sFEKO1sjvxKb4gBT9CQmAIupnqx-D_xQxXJVRpQF'
            }
 
 with open('./users.json') as data_file:    
     totalUsers = json.load(data_file)
 
     for users in totalUsers:
+        time.sleep(1)
         fullName = users["name"];
         nameList = fullName.split(" ");
         if nameList.count > 0:
@@ -38,6 +40,9 @@ with open('./users.json') as data_file:
             
                     "email": login,
                     "login": login,
+                    "title": users["title"],
+                    "manager": users["manager"],
+                    "location": users["location"],
                     "mobilePhone": mobile
                   }
                   };
@@ -47,7 +52,9 @@ with open('./users.json') as data_file:
                 "profile": {
                     "firstName": givenName,
                     "lastName" : lastName,
-            
+                    "title": users["title"],
+                    "manager": users["manager"],
+                    "location": users["location"],
                     "email": login,
                     "login": login,
                   }
