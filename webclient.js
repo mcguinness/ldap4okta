@@ -5,12 +5,21 @@ var RestClient = require('node-rest-client').Client;
 
 function userToAttributes(user) {
   return {
-      objectClass: ['inetorgperson', 'organizationalperson', 'person', 'top'],
+      objectClass: ['okta-user', 'inetorgperson', 'organizationalperson', 'person', 'top'],
       sn: user['profile']['lastName'],
       givenName: user['profile']['firstName'],
       mail: user['profile']['email'],
       mobile: user['profile']['mobilePhone'],
       uid: user['profile']['login']
+  };
+}
+
+function groupToAttributes(group) {
+  return {
+      objectClass: ['okta-group', 'group', 'top'],
+      name: group.profile.name,
+      description: group.profile.description,
+      gid: group.id
   };
 }
 
@@ -28,8 +37,10 @@ function OktaClient(baseUrl, apiToken) {
 
   // Add Methods
   oktaApi.registerMethod("createSession", baseUrl + "/api/v1/sessions", "POST");
-  oktaApi.registerMethod("getSingleActiveUser", baseUrl + "/api/v1/users/${uid}", "GET");
-  oktaApi.registerMethod("getActiveUsers", baseUrl + "/api/v1/users", "GET");
+  oktaApi.registerMethod("getUser", baseUrl + "/api/v1/users/${uid}", "GET");
+  oktaApi.registerMethod("getUsers", baseUrl + "/api/v1/users", "GET");
+  oktaApi.registerMethod("getGroups", baseUrl + "/api/v1/groups", "GET");
+  oktaApi.registerMethod("getGroup", baseUrl + "/api/v1/groups/${gid}", "GET");
 
   this.authenticate = function(userName, password, onSuccess, onFail) {
     oktaApi.methods.createSession({
@@ -54,7 +65,7 @@ function OktaClient(baseUrl, apiToken) {
   }
 
   this.getUserByUid = function (uid, onSuccess, onFail) {
-    oktaApi.methods.getSingleActiveUser({
+    oktaApi.methods.getUser({
         path: {"uid": uid },
         headers: httpHeaders
       },
@@ -75,15 +86,12 @@ function OktaClient(baseUrl, apiToken) {
   }
 
   this.getUsers = function(onSuccess, onFail) {
-    oktaApi.methods.getActiveUsers( { headers: httpHeaders }, 
+    console.log("Getting active users: ");
+    oktaApi.methods.getUsers( { headers: httpHeaders }, 
       function(data, response) {
         if (response.statusCode == 200) {
-            console.log("Getting list of Active Users: \n");
-            console.log(response);
             console.log(data);
-
             var users = JSON.parse(data);
-
             var ldapUsers = [];
             for (var i=0; i<users.length; i++) {
               ldapUsers[i] = userToAttributes(users[i]);
@@ -98,94 +106,49 @@ function OktaClient(baseUrl, apiToken) {
           onFail();
     });
 
-  }
-}
+  };
 
-
-
-function getGroupsById (groupId, baseUrl, authToken) {
-
-  var authHeader = "SSWS " +  authToken; // TODO hackers: make this part of constructor
-
-   oktaApi.registerMethod("getGroupsById", baseUrl + "/api/v1/groups/${gid}", "GET");
-   var authHeader = "SSWS " +  authToken;
-   var allUsersArgs = {
-      path: {"gid": groupId },
-      headers: {
-        "Accept":"application/json",
-        "Content-Type":"application/json",
-        "Authorization": authHeader
-      }
-    }
-    oktaApi.methods.getGroupsById(allUsersArgs, 
+  this.getGroups = function (onSuccess, onFail) {
+    console.log("Getting active users: ");
+    oktaApi.methods.getGroups({ headers: httpHeaders },
       function(data, response) {
         if (response.statusCode == 200) {
-            console.log("Getting list of Groups with Id " + groupId + "\n");
             console.log(data);
-            //return next();
+            var groups = JSON.parse(data);
+            var ldapGroups = [];
+            for (var i=0; i<groups.length; i++) {
+              ldapGroups[i] = groupToAttributes(groups[i]);
+            }
+            return onSuccess(ldapGroups);
         } else {
           console.log("Wrong API Token!");
-          //return next(new ldap.InvalidCredentialsError());
         }
       }).on('error',function(err) {
           console.log('something went wrong on the request', err.request.options);
-          //return next(new ldap.InvalidCredentialsError());
     });
+  };
+
+
+  this.getGroupById = function(groupId, onSuccess, onFail) {
+    console.log("Getting group:  " + groupId);
+    oktaApi.methods.getGroup({
+      path: { "gid": groupId },
+      headers: httpHeaders
+    }, 
+    function(data, response) {
+      if (response.statusCode == 200) {
+          console.log(data);
+          onSuccess(groupToAttributes(JSON.parse(data)));
+      } else {
+        onFail();
+      }
+    }).on('error',function(err) {
+        console.log('something went wrong on the request', err.request.options);
+        onFail();
+    });
+  };
 }
 
-function getGroupsByName (groupPrefix, baseUrl, authToken) {
-   oktaApi.registerMethod("getGroupsByName", baseUrl + "/api/v1/groups", "GET");
-   var authHeader = "SSWS " +  authToken;
-   var allUsersArgs = {
-      parameters:{q:groupPrefix},
-      headers: {
-        "Accept":"application/json",
-        "Content-Type":"application/json",
-        "Authorization": authHeader
-      }
-    }
-    oktaApi.methods.getGroupsByName(allUsersArgs, 
-      function(data, response) {
-        if (response.statusCode == 200) {
-            console.log("Getting list of Groups with Prefix " + groupPrefix + "\n");
-            console.log(data);
-            //return next();
-        } else {
-          console.log("Wrong API Token!");
-          //return next(new ldap.InvalidCredentialsError());
-        }
-      }).on('error',function(err) {
-          console.log('something went wrong on the request', err.request.options);
-          //return next(new ldap.InvalidCredentialsError());
-    });
-}
-
-function getAllGroups (baseUrl, authToken) {
-   oktaApi.registerMethod("getGroupsByName", baseUrl + "/api/v1/groups", "GET");
-   var authHeader = "SSWS " +  authToken;
-   var allUsersArgs = {
-      parameters:{limit:'200'},
-      headers: {
-        "Accept":"application/json",
-        "Content-Type":"application/json",
-        "Authorization": authHeader
-      }
-    }
-    oktaApi.methods.getGroupsByName(allUsersArgs, 
-      function(data, response) {
-        if (response.statusCode == 200) {
-            console.log("Getting list of Groups ");
-            console.log(data);
-            //return next();
-        } else {
-          console.log("Wrong API Token!");
-          //return next(new ldap.InvalidCredentialsError());
-        }
-      }).on('error',function(err) {
-          console.log('something went wrong on the request', err.request.options);
-          //return next(new ldap.InvalidCredentialsError());
-    });
-}
 
 
 module.exports = OktaClient;
