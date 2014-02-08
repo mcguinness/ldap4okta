@@ -38,10 +38,12 @@ function OktaClient(baseUrl, apiToken) {
   // Add Methods
   oktaApi.registerMethod("createSession", baseUrl + "/api/v1/sessions", "POST");
   oktaApi.registerMethod("getUser", baseUrl + "/api/v1/users/${uid}", "GET");
+  oktaApi.registerMethod("getUserGroups", baseUrl + "/api/v1/users/${uid}/groups", "GET");
   oktaApi.registerMethod("getUsers", baseUrl + "/api/v1/users", "GET");
-  oktaApi.registerMethod("findUsers", baseUrl + "/api/v1/users", "GET");
   oktaApi.registerMethod("getGroups", baseUrl + "/api/v1/groups", "GET");
   oktaApi.registerMethod("getGroup", baseUrl + "/api/v1/groups/${gid}", "GET");
+  oktaApi.registerMethod("getGroupUsers", baseUrl + "/api/v1/groups/${gid}/users", "GET");
+  oktaApi.registerMethod("findUsers", baseUrl + "/api/v1/users", "GET");
 
   this.authenticate = function(userName, password, onSuccess, onError) {
     oktaApi.methods.createSession({
@@ -177,6 +179,55 @@ function OktaClient(baseUrl, apiToken) {
     }).on('error',function(err) {
         console.log('something went wrong on the request', err.request.options);
         onError();
+    });
+  };
+
+  this.getUserGroups = function(uid, onSuccess, onFail) {
+    console.log("Getting groups for user:  " + uid);
+    oktaApi.methods.getUserGroups({
+      path: {"uid": uid },
+      headers: httpHeaders
+    }, 
+    function(data, response) {
+      if (response.statusCode == 200) {
+          console.log(data);
+          var groups = JSON.parse(data);
+          var ldapGroups = [];
+          for (var i=0; i<groups.length; i++) {
+            ldapGroups[i] = groupToAttributes(groups[i]);
+          }
+          return onSuccess(ldapGroups);
+      } else {
+        onFail();
+      }
+    }).on('error',function(err) {
+        console.log('something went wrong on the request', err.request.options);
+        onFail();
+    });
+  };
+
+  this.getGroupUsers = function(groupId, onSuccess, onFail) {
+    console.log("Getting users for group:  " + groupId);
+    oktaApi.methods.getGroupUsers({
+      path: { "gid": groupId },
+      headers: httpHeaders
+    }, 
+    function(data, response) {
+      if (response.statusCode == 200) {
+        console.log(data);
+         
+        var users = JSON.parse(data);
+        var ldapUsers = [];
+        for (var i=0; i<users.length; i++) {
+          ldapUsers[i] = userToAttributes(users[i]);
+        }
+        return onSuccess(ldapUsers);
+      } else {
+        onFail();
+      }
+    }).on('error',function(err) {
+        console.log('something went wrong on the request', err.request.options);
+        onFail();
     });
   };
 }
