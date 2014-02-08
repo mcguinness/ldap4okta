@@ -1,5 +1,6 @@
 var ldap = require('ldapjs');
-var oktaweb = require('./webclient.js');
+var OktaClient = require('./webclient.js');
+var _ = require('underscore');
 
 
 
@@ -36,6 +37,7 @@ var RestClient = require('node-rest-client').Client;
 var orgBaseUrl = "http://rain.okta1.com:1802";
 var oktaApi = new RestClient();
 var authHeader = "SSWS " +  apiToken;
+var oktaClient = new OktaClient(orgBaseUrl, authHeader);
 
 
 oktaApi.registerMethod("createSession", orgBaseUrl + "/api/v1/sessions?additionalFields=cookieToken", "POST");
@@ -194,24 +196,30 @@ server.search(USERSUFFIX, function(req, res, next) {
       console.log(f.filters[0].attribute);
       console.log(f.filters[0].value);
       
-
-      oktaweb.getUserByLogin (f.filters[0].value, orgBaseUrl, apiToken, function(userAttributes) {
-        res.send({
-          dn: "uid=foo, " + USERSUFFIX,
-          attributes: userAttributes
-        });
-           res.end();
-      })
- 
-
-    
-
-
-    } else {
-      oktaweb.getActiveUsers (orgBaseUrl, apiToken);
+      oktaClient.getUserByUid(f.filters[0].value, 
+        function(userAttributes) {
+          res.send({
+            dn: "uid=" + userAttributes.uid + "," + USERSUFFIX,
+            attributes: userAttributes
+          });
+          res.end();
+        }, function() {
           res.end()
+        });
+    } else {
+      oktaClient.getUsers( 
+        function(ldapUsers) {
+          res.send(_.map(ldapUsers, function(user) {
+            return { 
+              dn: "uid=" + user.uid + "," + USERSUFFIX,
+              attributes: user 
+            };
+          }));
+          res.end();
+        }, function() {
+          res.end()
+        });
     }
-;
 });
 
 server.search(GROUPSUFFIX, function(req, res, next) {
