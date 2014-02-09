@@ -47,7 +47,6 @@ var options = argv.tls ? {
   key: fs.readFileSync('server-key.pem', encoding='ascii')
 } : {};
 var server = ldap.createServer(options);
-var oktaApi = new RestClient();
 var oktaClient = new OktaClient(argv.url, "SSWS " +  argv.token);
 
 
