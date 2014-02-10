@@ -1,6 +1,9 @@
 var ldap       = require('ldapjs');
     fs         = require('fs'),
     _          = require('underscore'),
+    url        = require('url'),
+    deferred   = require('deferred'),
+    TreeModel  = require('tree-model'),
     RestClient = require('node-rest-client').Client;
     OktaClient = require('./webclient.js');
 
@@ -8,6 +11,7 @@ var ldap       = require('ldapjs');
 
 var argv = require('yargs')
     .usage('Okta LDAP Proxy v0.1\nUsage: $0')
+    .example('$0 -f', 'count the lines in the given file')
     .default({ p: 1389, url: 'http://rain.okta1.com:1802', tls: false })
     .alias('t', 'token')
     .describe('token', 'SSWS API Token')
@@ -32,22 +36,290 @@ function authorize(req, res, next) {
 
 
 ///--- Constants
-
-var SUFFIX = 'o=okta';
-var USERSUFFIX = 'ou=users' + ',' + 'o=okta';
-var GROUPSUFFIX = 'ou=groups' + ',' + 'o=okta';
 var ADMIN_DN = 'cn=root';
 var ADMIN_PWD = 'secret';
+var ORG_SUBDOMAIN = url.parse(argv.url).host.match(/^(?![0-9]+$)(?!.*-$)(?!-)[a-zA-Z0-9-]{1,63}/)[0];
 
 ///--- Globals
+var dit = new TreeModel().parse({
+  dn: 'o=' + ORG_SUBDOMAIN,
+  attributes: {
+    objectClass: [ 'top', 'organization' ],
+    o: ORG_SUBDOMAIN,
+    name: ORG_SUBDOMAIN
+  },
+  children: [
+    {
+      dn: 'ou=users,o=' + ORG_SUBDOMAIN,
+      attributes: {
+        objectClass: [ 'top', 'organizationalUnit' ],
+        ou: 'users',
+        name: 'users'
+      }
+    },
+    {
+      dn: 'ou=groups,o=' + ORG_SUBDOMAIN,
+      attributes: {
+        objectClass: [ 'top', 'organizationalUnit' ],
+        ou: 'groups',
+        name: 'groups'
+      }
+    }
+  ]
+});
 
-var db = {};
+_.extend(dit, {
+  parentDNs: function () {
+    var parents = [];
+    this.walk(function(node) {
+      if (_.isString(node.model.dn)) {
+        parents.push(node.model.dn);
+      }
+    });
+    return parents;
+  },
+  usersDN: function() {
+    var dn;
+    this.walk(function(node) {
+      if (node.model.attributes.ou == 'users') {
+        dn = node.model.dn;
+        return false;
+      }
+      return true;
+    });
+    return dn;
+  },
+  groupsDN: function() {
+    var dn;
+    this.walk(function(node) {
+      if (node.model.attributes.ou == 'groups') {
+        dn = node.model.dn;
+        return false;
+      }
+      return true;
+    });
+    return dn;
+  }
+});
+
+
+var FilterHandler = function() {
+  var self = this;
+
+  this.queryPlan = {
+    users: {
+      objectClass: ['okta-user', 'user', 'inetorgperson'],
+      list: false,
+      query: [],
+      queryAttributes: ['givenname', 'sn', 'email', 'cn'],
+      id: [],
+      idAttributes: ['id', 'uid', 'login', 'cn']
+    },
+    groups: {
+      objectClass: ['okta-group', 'group'],
+      list: false,
+      query: [],
+      queryAttributes: ['name', 'cn'],
+      id: [],
+      idAttributes: ['id', 'gid', 'cn']
+    }
+  }
+
+  function parseSingleFilter(f, qp) {
+    console.log("processing filter: " + f.toString());
+    if (self.constructor.isObjectClass(f, qp.users.objectClass)) {
+      qp.users.list = true;
+    } else if (self.constructor.isObjectClass(f, qp.groups.objectClass)) {
+      qp.groups.list = true;
+    } else if (self.constructor.isQuery(f, qp.users.queryAttributes)) {
+      qp.users.query.push(f.initial);
+    } else if (self.constructor.isEquals(f, qp.users.idAttributes)) {
+      qp.users.id.push(f.value);
+    }
+  }
+
+  function parseAndFilter(andFilter, qp) {
+    console.log("processing 'and' filter: " + andFilter.toString());
+    if (andFilter.type === 'and') {
+      // (&(objectClass=x)(attribute=y))
+      if (andFilter.filters.length == 2) {
+        if (self.constructor.isObjectClass(andFilter.filters, qp.users.objectClass)) {
+          _.each(andFilter.filters, function(f) {
+            console.log("processing filter: " + f.toString());
+            if (self.constructor.isQuery(f, qp.users.queryAttributes)) {
+              if (_.indexOf(qp.users.query, f.initial) < 0) {
+                qp.users.query.push(f.initial);
+              }
+            } else if (self.constructor.isEquals(f, qp.users.idAttributes)) {
+              if (_.indexOf(qp.users.id, f.value) < 0) {
+                qp.users.id.push(f.value);
+              }
+            }
+          });
+        } else if (self.constructor.isObjectClass(andFilter.filters, qp.groups.objectClass)) {
+          _.each(andFilter.filters, function(f) {
+            console.log("processing filter: " + f.toString());
+            if (self.constructor.isQuery(f, qp.groups.queryAttributes)) {
+              if (_.indexOf(qp.groups.query, f.initial) < 0) {
+                qp.groups.query.push(f.initial);
+              }
+            } else if (self.constructor.isEquals(f, qp.groups.idAttributes)) {
+              if (_.indexOf(qp.groups.id, f.value) < 0) {
+                qp.groups.id.push(f.value);
+              }
+            }
+          });
+        }
+      }
+    }
+  }
+
+  function parseOrFilter(orFilter, qp) {
+    console.log("processing 'or' filter: " + orFilter.toString());
+    if (orFilter.type === 'or') {
+      _.each(orFilter.filters, function(f) {
+        parseSingleFilter(f, qp);
+      });
+    }
+  }
+
+  function parseFilter(filter, qp) {
+    console.log(filter);
+    if (filter.type === 'and') {
+      if (filter.filters.length == 1 && filter.filters[0].type === 'or') {
+        parseOrFilter(filter.filters[0], qp);
+      } else {
+        parseAndFilter(filter, qp) 
+      }
+    } else if (filter.type === 'or') {
+      parseOrFilter(filter, qp);
+    } else {
+      parseSingleFilter(filter, qp);
+    }
+  }
+
+  this.execute = function(filter, callback) {
+
+    parseFilter(filter, this.queryPlan);
+    console.log(this.queryPlan);
+
+    var promises = [];
+    var delayGetUsers = deferred.promisify(oktaClient.getUsers);
+    var delayGetGroups = deferred.promisify(oktaClient.getGroups);
+    var delayFindUsers = deferred.promisify(oktaClient.findUsers);
+    var delayGetUserByUid = deferred.promisify(oktaClient.getUserByUid);
+
+    if (this.queryPlan.users.list && this.queryPlan.users.list) {
+      deferred(delayGetUsers(), delayGetGroups())
+        .then(function (results) {
+          callback(null, results);
+        }, function (err) {
+          callback(err);
+        });
+    } else {
+      if (this.queryPlan.users.list) {
+        promises.push(delayGetUsers());
+      } else {
+        _.each(_.uniq(self.queryPlan.users.query), function(query) {
+          promises.push(delayFindUsers(query));
+        });
+        _.each(_.uniq(self.queryPlan.users.id), function(id) {
+          promises.push(delayGetUserByUid(id));
+        });
+      }
+
+      if (this.queryPlan.groups.list) {
+        promises.push(delayGetGroups());
+      };
+      
+      deferred.map(promises, function(promise) {
+        return promise;
+      }).then(function (results) {
+        callback(null, results);
+      }, function (err) {
+        callback(err);
+      });
+    }
+  }
+};
+
+FilterHandler.isObjectClass = function(filter, objectClass) {
+  var targetClasses = _.isArray(objectClass) ? objectClass : [objectClass];
+  var filters = _.isArray(filter) ? filter : [filter];
+
+  for (var i=0; i<filters.length; i++) {
+    f = filters[i];
+    if (f.type && f.attribute && f.attribute.toLowerCase() === 'objectclass') {
+      if (f.type === 'present') { 
+        return true; 
+      }
+      else if (f.type === 'equal' && f.value) {
+        return _.some(targetClasses, function(objectClass) {
+          return f.value.toLowerCase() === objectClass.toLowerCase();
+        });
+      }
+    }
+  }
+
+  return false;
+}
+
+FilterHandler.isQuery = function(filter, queryAttrs) {
+  queryAttrs = _.isArray(queryAttrs) ? queryAttrs : [queryAttrs];
+  return filter.type === 'substring' && filter.attribute &&
+    _.some(queryAttrs, function(attr) {
+      return filter.attribute.toLowerCase() === attr.toLowerCase();
+    });
+}
+
+FilterHandler.isEquals = function(filter, attrs) {
+  attrs = _.isArray(attrs) ? attrs : [attrs];
+  return filter.type === 'equal' && filter.attribute &&
+    _.some(attrs, function(attr) {
+      return filter.attribute.toLowerCase() === attr.toLowerCase();
+    });
+}
+
+var schemaMapper = {
+  toUser: function(user) {
+    return {
+      dn: "uid=" + user.profile.login + "," + dit.usersDN(),
+      attributes: {
+        objectClass: ['okta-user', 'inetorgperson', 'organizationalperson', 'person', 'top'],
+        cn: user.profile.login,
+        userName: user.profile.login,
+        sn: user.profile.lastName,
+        givenName: user.profile.firstName,
+        mail: user.profile.email,
+        mobile: user.profile.mobilePhone,
+        uid: user.profile.login,
+        title: user.profile.title,
+        manager: user.profile.manager,
+        physicalDeliveryOfficeName: user.profile.location,
+        uid: user.id
+      }
+    }
+  },
+  toGroup: function(group) {
+    return {
+      dn: 'gid=' + group.id + ',' + dit.groupsDN(),
+      attributes: {
+        objectClass: ['okta-group', 'group', 'top'],
+        name: group.profile.name,
+        description: group.profile.description,
+        gid: group.id
+      }
+    }
+  }
+}
+
+
 var options = argv.tls ? {
   certificate: fs.readFileSync('server-cert.pem', encoding='ascii'),
   key: fs.readFileSync('server-key.pem', encoding='ascii')
 } : {};
 var server = ldap.createServer(options);
-var oktaClient = new OktaClient(argv.url, "SSWS " +  argv.token);
+var oktaClient = new OktaClient(argv.url, "SSWS " +  argv.token, schemaMapper);
 
 
 function logRequest(req) {
@@ -77,18 +349,19 @@ server.bind(ADMIN_DN, function (req, res, next) {
 });
 
 // User with DN
-server.bind(SUFFIX, function (req, res, next) {
+server.bind(dit.model.dn, function (req, res, next) {
   logRequest(req);
   if (req.dn.rdns[0].uid !== 'undefined') {
     oktaClient.authenticate(req.dn.rdns[0].uid, req.credentials, 
-      function() {
-        logResult(req, 'Success');
-        res.end();
-        return next();
-      },
-      function() {
-        logResult(req, 'InvalidCredentialsError - [credentials not valid]');
-        return next(new ldap.InvalidCredentialsError());
+      function(err) {
+        if (err) {
+          logResult(req, 'InvalidCredentialsError - [credentials not valid]');
+          return next(new ldap.InvalidCredentialsError());
+        } else {
+          logResult(req, 'Success');
+          res.end();
+          return next();
+        }
       });
   } else {
     logResult(req, 'InvalidCredentialsError - [uid not present]');
@@ -96,42 +369,27 @@ server.bind(SUFFIX, function (req, res, next) {
   }
 });
 
-// server.add(SUFFIX, authorize, function (req, res, next) {
+// server.add(ROOT_DN, authorize, function (req, res, next) {
 //   var dn = req.dn.toString();
 
-//   if (db[dn])
+//   if (dit[dn])
 //     return next(new ldap.EntryAlreadyExistsError(dn));
 
-//   db[dn] = req.toObject().attributes;
+//   dit[dn] = req.toObject().attributes;
 //   res.end();
 //   return next();
 // });
 
-// server.bind(SUFFIX, function (req, res, next) {
+// server.compare(ROOT_DN, authorize, function (req, res, next) {
 //   var dn = req.dn.toString();
-//   if (!db[dn])
+//   if (!dit[dn])
 //     return next(new ldap.NoSuchObjectError(dn));
 
-//   if (!db[dn].userpassword)
-//     return next(new ldap.NoSuchAttributeError('userPassword'));
-
-//   if (db[dn].userpassword.indexOf(req.credentials) === -1)
-//     return next(new ldap.InvalidCredentialsError());
-
-//   res.end();
-//   return next();
-// });
-
-// server.compare(SUFFIX, authorize, function (req, res, next) {
-//   var dn = req.dn.toString();
-//   if (!db[dn])
-//     return next(new ldap.NoSuchObjectError(dn));
-
-//   if (!db[dn][req.attribute])
+//   if (!dit[dn][req.attribute])
 //     return next(new ldap.NoSuchAttributeError(req.attribute));
 
 //   var matches = false;
-//   var vals = db[dn][req.attribute];
+//   var vals = dit[dn][req.attribute];
 //   for (var i = 0; i < vals.length; i++) {
 //     if (vals[i] === req.value) {
 //       matches = true;
@@ -143,25 +401,25 @@ server.bind(SUFFIX, function (req, res, next) {
 //   return next();
 // });
 
-// server.del(SUFFIX, authorize, function (req, res, next) {
+// server.del(ROOT_DN, authorize, function (req, res, next) {
 //   var dn = req.dn.toString();
-//   if (!db[dn])
+//   if (!dit[dn])
 //     return next(new ldap.NoSuchObjectError(dn));
 
-//   delete db[dn];
+//   delete dit[dn];
 
 //   res.end();
 //   return next();
 // });
 
-// server.modify(SUFFIX, authorize, function (req, res, next) {
+// server.modify(ROOT_DN, authorize, function (req, res, next) {
 //   var dn = req.dn.toString();
 //   if (!req.changes.length)
 //     return next(new ldap.ProtocolError('changes required'));
-//   if (!db[dn])
+//   if (!dit[dn])
 //     return next(new ldap.NoSuchObjectError(dn));
 
-//   var entry = db[dn];
+//   var entry = dit[dn];
 
 //   for (var i = 0; i < req.changes.length; i++) {
 //     mod = req.changes[i].modification;
@@ -202,87 +460,8 @@ server.bind(SUFFIX, function (req, res, next) {
 //   return next();
 // });
 
-server.search(USERSUFFIX, function(req, res, next) {
-  logRequest(req);
 
-    // filter: (&(|(givenname=karl*)(sn=karl*)(mail=karl*)(cn=karl*)))
-    if (req.filter.type === 'and' && req.filter.filters[0].type === 'or') {
-      var orFilters = req.filter.filters[0].filters;
-      if (_.find(orFilters, function(filter) {
-        return (filter.type == 'substring' && 
-          (filter.attribute == 'givenName' || filter.attribute == 'sn' || filter.attribute == 'email'));
-      })) {
-        oktaClient.findUsers(orFilters[0].initial,
-          function(ldapUsers) {
-            _.each(ldapUsers, function(user) {
-              res.send({ 
-                dn: "uid=" + user.uid + "," + USERSUFFIX,
-                attributes: user 
-              });
-            });
-            res.end();
-          }, function() {
-            res.end()
-          });
-      } else {
-        res.end();
-      }
-    } else {
-      switch(req.filter.type) {
-        case 'equal': {
-          if(req.filter.attribute == 'uid') {
-            oktaClient.getUserByUid(req.filter.value, 
-              function(ldapUser) {
-                res.send({
-                  dn: "uid=" + ldapUser.uid + "," + USERSUFFIX,
-                  attributes: ldapUser
-                });
-                res.end();
-              }, function() {
-                res.end()
-              });
-          } else {
-            console.log('unknown filter');
-          }
-          break;
-        }
-        case 'and':{
-          //assume objectclass=group as first filter
-          var uid = req.filter.filters[1].value;
-          console.log(uid);
-          oktaClient.getUserGroups(uid, 
-            function(ldapGroups) {
-              _.each(ldapGroups, function(ldapGroup) {
-                res.send({ 
-                  dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
-                  attributes: ldapGroup 
-                });
-              });
-            res.end();
-            }, function() {
-            res.end()
-          });
-          break;
-        }
-        default: {
-          oktaClient.getUsers( 
-            function(ldapUsers) {
-              _.each(ldapUsers, function(user) {
-                res.send({ 
-                  dn: "uid=" + user.uid + "," + USERSUFFIX,
-                  attributes: user 
-                });
-              });
-              res.end();
-            }, function() {
-            res.end()
-          });
-        }
-      }
-    }
-});
-
-server.search(GROUPSUFFIX, function(req, res, next) {
+server.search('cn=nomas', function(req, res, next) {
     console.log('base object: ' + req.dn.toString());
     console.log('scope: ' + req.scope);
     console.log('filter: ' + req.filter.toString());
@@ -292,7 +471,7 @@ server.search(GROUPSUFFIX, function(req, res, next) {
         oktaClient.getGroupById(req.filter.value, 
           function(ldapGroup) {
             res.send({
-              dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
+              dn: "gid=" + ldapGroup.gid + "," + GROUPS_DN,
               attributes: ldapGroup
             });
             res.end();
@@ -309,7 +488,7 @@ server.search(GROUPSUFFIX, function(req, res, next) {
           function(ldapUsers) {
             _.each(ldapUsers, function(user) {
             res.send({ 
-              dn: "uid=" + user.uid + "," + USERSUFFIX,
+              dn: "uid=" + user.uid + "," + USERS_DN,
               attributes: user 
             });
           });
@@ -324,7 +503,7 @@ server.search(GROUPSUFFIX, function(req, res, next) {
           function(ldapGroups) {
             _.each(ldapGroups, function(ldapGroup) {
               res.send({ 
-                dn: "gid=" + ldapGroup.gid + "," + GROUPSUFFIX,
+                dn: "gid=" + ldapGroup.gid + "," + GROUPS_DN,
                 attributes: ldapGroup 
               });
             });
@@ -336,57 +515,28 @@ server.search(GROUPSUFFIX, function(req, res, next) {
     }
 });
 
-server.search("cn=foo", authorize, function (req, res, next) {
-  var dn = req.dn.toString();
-  if (!db[dn])
-    return next(new ldap.NoSuchObjectError(dn));
-
-  var scopeCheck;
-
-  switch (req.scope) {
-  case 'base':
-    if (req.filter.matches(db[dn])) {
-      res.send({
-        dn: dn,
-        attributes: db[dn]
-      });
-    }
-
-    res.end();
-    return next();
-
-  case 'one':
-    scopeCheck = function (k) {
-      if (req.dn.equals(k))
-        return true;
-
-      var parent = ldap.parseDN(k).parent();
-      return (parent ? parent.equals(req.dn) : false);
-    };
-    break;
-
-  case 'sub':
-    scopeCheck = function (k) {
-      return (req.dn.equals(k) || req.dn.parentOf(k));
-    };
-
-    break;
+server.search(dit.model.dn, authorize, function (req, res, next) {
+  logRequest(req);
+  
+  if (!_.some(dit.parentDNs(), function(dn) {
+    return req.dn.equals(dn) || req.dn.childOf(dn);
+  })) {
+    return next(new ldap.NoSuchObjectError(req.dn.toString()));
   }
 
-  Object.keys(db).forEach(function (key) {
-    if (!scopeCheck(key))
-      return;
-
-    if (req.filter.matches(db[key])) {
-      res.send({
-        dn: key,
-        attributes: db[key]
+  var handler = new FilterHandler();
+  handler.execute(req.filter, function(err, results) {
+    if (err) {
+      console.log(err);
+      return next(new ldap.UnwillingToPerformError(req.dn.toString()));
+    } else {
+      _.each(_.flatten(results), function(result) {
+        res.send(result);
       });
+      res.end();
+      return next();
     }
   });
-
-  res.end();
-  return next();
 });
 
 

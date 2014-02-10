@@ -4,60 +4,49 @@ var RestClient = require('node-rest-client').Client,
 
 
 
-function toUserSchema(user) {
-  return {
-      objectClass: ['okta-user', 'user', 'inetorgperson', 'organizationalperson', 'person', 'top'],
-      sn: user['profile']['lastName'],
-      givenName: user['profile']['firstName'],
-      mail: user['profile']['email'],
-      mobile: user['profile']['mobilePhone'],
-      uid: user['profile']['login'],
-      title: user['profile']['title'],
-      manager: user['profile']['manager'],
-      physicalDeliveryOfficeName: user['profile']['location'],
-      uuid: user['id']
-  };
-}
 
-function toGroupSchema(group) {
+
+function toOrgSchema(org) {
   return {
-      objectClass: ['okta-group', 'group', 'top'],
-      name: group.profile.name,
-      description: group.profile.description,
-      gid: group.id
+      objectClass: ['organization', 'top'],
+      o: org.subdomain,
+      name: org.name,
+      url: org.website,
+      status: org.status,
+      created: org.created,
+      lastUpdated: org.lastUpdated
   };
 }
 
 
-function OktaClientError(data, response) {
-    var ex;
-    this.name = "OktaClient";
+function OktaClientError(err) {
+  this.name = "OktaClientError";
+  this.error = err;
+}
+OktaResponseError.prototype = new Error();
+OktaResponseError.prototype.constructor = OktaClientError;
+
+function OktaResponseError(data, response) {
+    this.name = "OktaResponseError";
     this.statusCode = response.statusCode;
-    console.log(response);
-
-    console.log(data);
-
-    if (data !== 'undefined') {
-      ex = JSON.parse(data);
-      this.message = ex.errorSummary || "Unknown";
-      this.errorCode = ex.errorCode || "E0000000";
-    }
+    this.message = data.errorSummary || "Unknown";
+    this.errorCode = data.errorCode || "E0000000";  
 }
-OktaClientError.prototype = new Error();
-OktaClientError.prototype.constructor = OktaClient;
-
+OktaResponseError.prototype = new Error();
+OktaResponseError.prototype.constructor = OktaResponseError;
 
 
 // Constructor
-function OktaClient(baseUrl, apiToken) {
+function OktaClient(baseUrl, apiToken, schemaMapper) {
   
-  var orgName = url.parse(baseUrl).host.match(/^(?![0-9]+$)(?!.*-$)(?!-)[a-zA-Z0-9-]{1,63}/)[0];
+  var orgSubDomainName = url.parse(baseUrl).host.match(/^(?![0-9]+$)(?!.*-$)(?!-)[a-zA-Z0-9-]{1,63}/)[0];
   var oktaApi = new RestClient();
   var apiHeaders = {
     "Accept":"application/json",
     "Content-Type":"application/json",
     "Authorization": apiToken
   };
+  var _schemaMapper = schemaMapper;
 
   // Add Methods
   oktaApi.registerMethod("createSession", baseUrl + "/api/v1/sessions", "POST");
@@ -71,7 +60,10 @@ function OktaClient(baseUrl, apiToken) {
   oktaApi.registerMethod("getOrg", baseUrl + "/api/v1/orgs/${subDomain}", "GET");
 
 
-  this.authenticate = function(userName, password, onSuccess, onError) {
+
+
+
+  this.authenticate = function(userName, password, callback) {
     oktaApi.methods.createSession({
         headers: apiHeaders,
         data: {
@@ -80,14 +72,14 @@ function OktaClient(baseUrl, apiToken) {
         }
       }, function(data, response) {
         (response.statusCode == 200) ?
-          onSuccess() :
-          onError(new OktaClientError(data, response));
+          callback(null) :
+          callback(new OktaResponseError(data, response));
       }).on('error', function(err) {
-          onError();
+          callback(new OktaClientError(err));
       });
   }
 
-  this.getUserByUid = function (uid, onSuccess, onError) {
+  this.getUserByUid = function (uid, callback) {
     console.log('Finding user: ' + uid);
     oktaApi.methods.getUser({
         path: {"uid": uid },
@@ -95,33 +87,29 @@ function OktaClient(baseUrl, apiToken) {
       },
       function(data, response) {
         (response.statusCode == 200) ?
-          onSuccess(toUserSchema(JSON.parse(data))) :
-          onError(new OktaClientError(data, response));
+          callback(null, schemaMapper.toUser(JSON.parse(data))) :
+          callback(new OktaResponseError(data, response));
       }).on('error', function(err) {
-          console.log('something went wrong on the request', err.request.options);
-          onError();
+          callback(new OktaClientError(err));
       });
   }
 
-  this.getUsers = function(onSuccess, onError) {
+  this.getUsers = function(callback) {
     console.log('Getting all users...');
     oktaApi.methods.getUsers({ 
         headers: apiHeaders 
       }, 
       function(data, response) {
-        if (response.statusCode == 200) {
-            onSuccess(_.map(JSON.parse(data), toUserSchema));
-        } else {
-          onError(new OktaClientError(data, response));
-        }
+        response.statusCode == 200 ?
+          callback(null, _.map(JSON.parse(data), schemaMapper.toUser)) :
+          callback(new OktaResponseError(data, response));
       }).on('error',function(err) {
-          console.log('something went wrong on the request', err.request.options);
-          onError();
+          callback(new OktaClientError(err));
     });
   };
 
 
-  this.findUsers = function(query, onSuccess, onError) {
+  this.findUsers = function(query, callback) {
     console.log('Finding user that matches prefix: ' + query);
     oktaApi.methods.findUsers({ 
         parameters: {
@@ -130,33 +118,28 @@ function OktaClient(baseUrl, apiToken) {
         headers: apiHeaders
       }, 
       function(data, response) {
-        if (response.statusCode == 200) {
-            onSuccess(_.map(JSON.parse(data), toUserSchema));
-        } else {
-          onError(new OktaClientError(data, response));
-        }
+        response.statusCode == 200 ?
+          callback(null, _.map(JSON.parse(data), schemaMapper.toUser)) :
+          callback(new OktaResponseError(data, response));
       }).on('error',function(err) {
-          console.log('something went wrong on the request', err.request.options);
-          onError();
+          callback(new OktaClientError(err));
     });
   };
 
-  this.getGroups = function (onSuccess, onError) {
+  this.getGroups = function (callback) {
     console.log("Getting all groups...");
     oktaApi.methods.getGroups({ headers: apiHeaders },
       function(data, response) {
-        if (response.statusCode == 200) {
-            onSuccess(_.map(JSON.parse(data), toGroupSchema));
-        } else {
-          onError(new OktaClientError(data, response));
-        }
-      }).on('error',function(err) {
-          console.log('something went wrong on the request', err.request.options);
+        response.statusCode == 200 ?
+          callback(null, _.map(JSON.parse(data), schemaMapper.toGroup)) :
+          callback(new OktaResponseError(data, response));
+    }).on('error',function(err) {
+        callback(new OktaClientError(err));
     });
   };
 
 
-  this.getGroupById = function(groupId, onSuccess, onError) {
+  this.getGroupById = function(groupId, callback) {
     console.log("Getting group:  " + groupId);
     oktaApi.methods.getGroup({
       path: { "gid": groupId },
@@ -164,48 +147,57 @@ function OktaClient(baseUrl, apiToken) {
     }, 
     function(data, response) {
       (response.statusCode == 200) ?
-        onSuccess(toGroupSchema(JSON.parse(data))) :
-        onError(new OktaClientError(data, response));
-    }).on('error',function(err) {
-        console.log('something went wrong on the request', err.request.options);
-        onError();
+        callback(null, schemaMapper.toGroup(JSON.parse(data))) :
+        callback(new OktaResponseError(data, response));
+    }).on('error', function(err) {
+        callback(new OktaClientError(err));
     });
   };
 
-  this.getUserGroups = function(uid, onSuccess, onError) {
+  this.getUserGroups = function(uid, callback) {
     console.log("Getting groups for user:  " + uid);
     oktaApi.methods.getUserGroups({
       path: {"uid": uid },
       headers: apiHeaders
     }, 
     function(data, response) {
-      if (response.statusCode == 200) {
-          onSuccess(_.map(JSON.parse(data), toGroupSchema));
-      } else {
-        onError(new OktaClientError(data, response));
-      }
+      response.statusCode == 200 ?
+        callback(null, _.map(JSON.parse(data), schemaMapper.toGroup)) :
+        callback(new OktaResponseError(data, response));
     }).on('error',function(err) {
-        console.log('something went wrong on the request', err.request.options);
-        onError();
+        callback(new OktaClientError(err));
     });
   };
 
-  this.getGroupUsers = function(groupId, onSuccess, onError) {
+  this.getGroupUsers = function(groupId, callback) {
     console.log("Getting users for group:  " + groupId);
     oktaApi.methods.getGroupUsers({
       path: { "gid": groupId },
       headers: apiHeaders
     }, 
     function(data, response) {
-      if (response.statusCode == 200) {
-          onSuccess(_.map(JSON.parse(data), toUserSchema));
-      } else {
-        onError(new OktaClientError(data, response));
-      }
+      response.statusCode == 200 ?
+        callback(null, _.map(JSON.parse(data), schemaMapper.toUser)) :
+        callback(new OktaResponseError(data, response));
     }).on('error',function(err) {
-        console.log('something went wrong on the request', err.request.options);
-        onError();
+        callback(new OktaClientError(err));
     });
+  };
+
+
+  this.getOrg = function(callback) {
+    console.log('Getting org...');
+    oktaApi.methods.getOrg({
+      path: { "subDomain": orgSubDomainName },
+      headers: apiHeaders
+    }, 
+    function(data, response) {
+      (response.statusCode == 200) ?
+        callback(null, schemaMapper.toOrg(JSON.parse(data))) :
+        callback(new OktaResponseError(data, response));
+    }).on('error', function(err) {
+        callback(new OktaClientError(err));
+    });;
   };
 }
 

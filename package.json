@@ -1,0 +1,17 @@
+{
+  "name": "okta-ldap",
+  "description": "LDAP protocol bridge for www.okta.com",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "underscore": ">=1.5.2",
+    "tree-model": ">=0.4.0",
+    "node-rest-client": ">=0.7.5",
+    "ldapjs": ">=0.7.0",
+    "yargs": ">=1.0.15",
+    "deferred": ">=0.6.8"
+  }
+}
