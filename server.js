@@ -176,8 +176,8 @@ server.bind(ADMIN_DN, function (req, res, next) {
 // User with DN
 server.bind(dit.model.dn, function (req, res, next) {
   logRequest(req);
-  if (req.dn.rdns[0].uid !== 'undefined') {
-    oktaClient.authenticate(req.dn.rdns[0].uid, req.credentials, 
+  if (req.dn.rdns[0].uid !== 'undefined' || req.dn.rdns[0].cn !== 'undefined') {
+    oktaClient.authenticate(req.dn.rdns[0].uid || req.dn.rdns[0].cn, req.credentials, 
       function(err) {
         if (err) {
           logResult(req, 'InvalidCredentialsError - [credentials not valid]');

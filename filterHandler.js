@@ -32,9 +32,13 @@ var FilterHandler = function() {
     } else if (self.constructor.isObjectClass(f, qp.groups.objectClass)) {
       qp.groups.list = true;
     } else if (self.constructor.isQuery(f, qp.users.queryAttributes)) {
-      qp.users.query.push(f.initial);
-    } else if (self.constructor.isEquals(f, qp.users.idAttributes)) {
-      qp.users.id.push(f.value);
+			if (_.indexOf(qp.users.query, f.initial) < 0) {
+				qp.users.query.push(f.initial);
+			} 
+		} else if (self.constructor.isEquals(f, qp.users.idAttributes)) {
+			if (_.indexOf(qp.users.id, f.value) < 0) {
+				qp.users.id.push(f.value);
+			}
     }
   }
 
@@ -84,7 +88,6 @@ var FilterHandler = function() {
   }
 
   function parseFilter(filter, qp) {
-    console.log(filter);
     if (filter.type === 'and') {
       if (filter.filters.length == 1 && filter.filters[0].type === 'or') {
         parseOrFilter(filter.filters[0], qp);
